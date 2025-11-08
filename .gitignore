@@ -1,0 +1,9 @@
+# Never upload these
+takeashot.db
+.env
+uploads/
+node_modules/
+__pycache__/
+*.pyc
+.vscode/
+.idea/
