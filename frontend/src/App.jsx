@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Send, LogOut, User, Mail, Lock, UserPlus, LogIn, MessageCircle } from 'lucide-react';
 
-const API_BASE = 'https://smooth-flowers-try.loca.lt/api';
+const API_BASE = 'https://takeashot-backend.onrender.com';
 
 const App = () => {
   const [currentView, setCurrentView] = useState('login');
