@@ -55,10 +55,11 @@ const App = () => {
       });
       if (response.ok) {
         const data = await response.json();
-        setMessages(data);
+        setMessages(Array.isArray(data) ? data : []);
       }
     } catch (error) {
       console.error('Error loading chat:', error);
+      setMessages([]);
     }
   };
 
