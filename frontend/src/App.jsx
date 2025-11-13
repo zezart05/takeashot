@@ -148,6 +148,7 @@ const App = () => {
     setUploading(true);
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('user_id', currentUser.id);
     
     try {
       const response = await fetch(`${API_BASE}/upload/file`, {
