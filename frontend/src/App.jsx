@@ -140,6 +140,9 @@ const App = () => {
     const file = e.target.files[0];
     if (!file) return;
     
+    console.log('🔍 DEBUG: currentUser =', currentUser);
+    console.log('🔍 DEBUG: currentUser.id =', currentUser?.id);
+    
     if (file.size > 10485760) {
       setError('File too large (max 10MB)');
       return;
@@ -148,7 +151,18 @@ const App = () => {
     setUploading(true);
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('user_id', currentUser.id);
+    
+    if (currentUser && currentUser.id) {
+      formData.append('user_id', currentUser.id);
+      console.log('✅ Added user_id:', currentUser.id);
+    } else {
+      console.error('❌ ERROR: currentUser or currentUser.id is missing!');
+      setError('User not loaded. Please refresh the page.');
+      setUploading(false);
+      return;
+    }
+    
+    console.log('📤 Uploading with FormData...');
     
     try {
       const response = await fetch(`${API_BASE}/upload/file`, {
@@ -159,15 +173,20 @@ const App = () => {
         body: formData
       });
       
+      console.log('📥 Response status:', response.status);
+      
       if (response.ok) {
         const data = await response.json();
         setUploadedFile(data);
         setError('');
+        console.log('✅ Upload successful!', data);
       } else {
         setError('File upload failed');
+        console.error('❌ Upload failed:', response.status);
       }
     } catch (error) {
       setError('File upload error');
+      console.error('❌ Upload error:', error);
     } finally {
       setUploading(false);
     }
