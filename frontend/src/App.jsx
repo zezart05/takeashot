@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Send, LogOut, User, Mail, Lock, UserPlus, LogIn, MessageCircle } from 'lucide-react';
 
-const API_BASE = 'https://takeashot-backend.onrender.com';
+const API_BASE = import.meta.env.VITE_API_URL || 'https://takeashot-backend.onrender.com/api';
 
 const App = () => {
   const [currentView, setCurrentView] = useState('login');
