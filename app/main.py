@@ -1,15 +1,15 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
-from app.database import engine, Base
+from app.database import engine, Base, SessionLocal
 from app.routes import auth, chat, upload
+from app.models import User
+from app.auth import get_password_hash
 
-# Create database tables
-Base.metadata.create_all(bind=engine)
-
+# Create FastAPI app
 app = FastAPI(title=settings.APP_NAME)
 
-# CORS configuration
+# Configure CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.ALLOWED_ORIGINS,
@@ -18,23 +18,64 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers
-app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
-app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
-app.include_router(upload.router, prefix="/api/upload", tags=["Upload"])
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database tables and demo users on startup"""
+    try:
+        Base.metadata.create_all(bind=engine)
+        print("✅ Database tables created/verified")
+        
+        db = SessionLocal()
+        try:
+            existing_users = db.query(User).count()
+            
+            if existing_users == 0:
+                print("Creating demo users...")
+                
+                manager = User(
+                    full_name="John Manager",
+                    email="manager@takeashot.com",
+                    password_hash=get_password_hash("password123"),
+                    role="manager",
+                    is_active=True
+                )
+                db.add(manager)
+                
+                employee = User(
+                    full_name="Alex Johnson",
+                    email="alex.johnson@takeashot.com",
+                    password_hash=get_password_hash("password123"),
+                    role="employee",
+                    is_active=True
+                )
+                db.add(employee)
+                
+                db.commit()
+                print("✅ Demo users created!")
+                print("Manager: manager@takeashot.com / password123")
+                print("Employee: alex.johnson@takeashot.com / password123")
+            else:
+                print(f"✅ Database already has {existing_users} users")
+                
+        finally:
+            db.close()
+            
+    except Exception as e:
+        print(f"⚠️ Database initialization error: {e}")
+
+app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
+app.include_router(upload.router, prefix="/api/upload", tags=["upload"])
 
 @app.get("/")
-def read_root():
+async def root():
     return {
-        "app": settings.APP_NAME,
-        "status": "running",
-        "message": "Welcome to Take a Shot API"
+        "message": "Take a Shot API is running!",
+        "status": "healthy",
+        "version": "1.0.0"
     }
 
+# Health check endpoint
 @app.get("/health")
-def health_check():
+async def health_check():
     return {"status": "healthy"}
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
