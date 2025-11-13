@@ -3,6 +3,7 @@ from typing import List
 import os
 
 class Settings(BaseSettings):
+    APP_NAME: str = "Take a Shot - Task Management"
     SECRET_KEY: str = os.getenv("SECRET_KEY", "akDSALASKFHL37ty934hfh34hf39fh9374fh937fh3hd4ostgh9sg")
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
