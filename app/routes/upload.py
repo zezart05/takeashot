@@ -1,109 +1,85 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException
 from sqlalchemy.orm import Session
-from pathlib import Path
-import os
-import shutil
-from datetime import datetime
 from app.database import get_db
-from app.auth import get_current_active_user
-from app.models import User
+from app.models import Message
 from app.config import settings
+from datetime import datetime
+import cloudinary
+import cloudinary.uploader
+import os
 
 router = APIRouter()
 
-# Ensure upload directory exists
-UPLOAD_DIR = Path(settings.UPLOAD_DIR)
-UPLOAD_DIR.mkdir(exist_ok=True)
+# Configure Cloudinary if credentials are available
+if settings.CLOUDINARY_CLOUD_NAME and settings.CLOUDINARY_API_KEY:
+    cloudinary.config(
+        cloud_name=settings.CLOUDINARY_CLOUD_NAME,
+        api_key=settings.CLOUDINARY_API_KEY,
+        api_secret=settings.CLOUDINARY_API_SECRET
+    )
+    USE_CLOUDINARY = True
+    print(f"✅ Cloudinary configured: {settings.CLOUDINARY_CLOUD_NAME}")
+else:
+    USE_CLOUDINARY = False
+    # Fallback to local storage
+    UPLOAD_DIR = settings.UPLOAD_DIR
+    if not os.path.exists(UPLOAD_DIR):
+        os.makedirs(UPLOAD_DIR, exist_ok=True)
+    print("⚠️ Cloudinary not configured, using local storage")
 
 @router.post("/file")
 async def upload_file(
     file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    user_id: int = Form(...),
+    db: Session = Depends(get_db)
 ):
-    """Upload a file"""
-    
-    # Check file size
-    contents = await file.read()
-    if len(contents) > settings.MAX_FILE_SIZE:
-        raise HTTPException(status_code=413, detail=f"File too large. Max size: {settings.MAX_FILE_SIZE / 1024 / 1024}MB")
-    
-    # Reset file pointer
-    await file.seek(0)
-    
-    # Generate unique filename
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    original_filename = file.filename.replace(" ", "_")
-    safe_filename = f"{current_user.id}_{timestamp}_{original_filename}"
-    file_path = UPLOAD_DIR / safe_filename
-    
-    # Save file
+    """Upload a file (uses Cloudinary in production, local storage in development)"""
     try:
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        print(f"📤 Uploading file: {file.filename} (Use Cloudinary: {USE_CLOUDINARY})")
+        
+        if USE_CLOUDINARY:
+            # Upload to Cloudinary
+            print("☁️ Uploading to Cloudinary...")
+            result = cloudinary.uploader.upload(
+                file.file,
+                folder="takeashot",
+                resource_type="auto"
+            )
+            file_url = result['secure_url']
+            file_path = file_url
+            print(f"✅ Uploaded to Cloudinary: {file_url}")
+            
+        else:
+            # Fallback: Local storage (for development)
+            print("💾 Saving to local storage...")
+            file_path = os.path.join(UPLOAD_DIR, file.filename)
+            with open(file_path, "wb") as f:
+                content = await file.read()
+                f.write(content)
+            file_url = f"/uploads/{file.filename}"
+            print(f"✅ Saved locally: {file_path}")
+        
+        # Create notification message with file
+        message = Message(
+            sender_id=user_id,
+            receiver_id=None,  # AI receives it
+            content=f"📎 File uploaded: {file.filename}",
+            file_path=file_url
+        )
+        
+        db.add(message)
+        db.commit()
+        
+        print(f"✅ Upload complete!")
+        
+        return {
+            "success": True,
+            "filename": file.filename,
+            "file_url": file_url,
+            "message": "File uploaded successfully!"
+        }
+        
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
-    
-    return {
-        "filename": original_filename,
-        "filepath": str(safe_filename),  # Store relative path
-        "size": len(contents),
-        "content_type": file.content_type
-    }
-
-@router.get("/file/{filename}")
-async def download_file(
-    filename: str,
-    current_user: User = Depends(get_current_active_user)
-):
-    """Download a file"""
-    
-    # Security: prevent directory traversal
-    if ".." in filename or "/" in filename or "\\" in filename:
-        raise HTTPException(status_code=400, detail="Invalid filename")
-    
-    file_path = UPLOAD_DIR / filename
-    
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="File not found")
-    
-    # Extract original filename (remove timestamp and user_id prefix)
-    parts = filename.split("_", 2)
-    if len(parts) >= 3:
-        original_filename = parts[2]
-    else:
-        original_filename = filename
-    
-    return FileResponse(
-        path=str(file_path),
-        filename=original_filename,
-        media_type="application/octet-stream"
-    )
-
-@router.delete("/file/{filename}")
-async def delete_file(
-    filename: str,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
-):
-    """Delete a file"""
-    
-    # Security: prevent directory traversal
-    if ".." in filename or "/" in filename or "\\" in filename:
-        raise HTTPException(status_code=400, detail="Invalid filename")
-    
-    # Check if file belongs to current user
-    if not filename.startswith(f"{current_user.id}_"):
-        raise HTTPException(status_code=403, detail="Not authorized to delete this file")
-    
-    file_path = UPLOAD_DIR / filename
-    
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="File not found")
-    
-    try:
-        os.remove(file_path)
-        return {"message": "File deleted successfully"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to delete file: {str(e)}")
+        print(f"❌ Upload error: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
