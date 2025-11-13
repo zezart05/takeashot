@@ -235,14 +235,18 @@ const App = () => {
     }
   };
 
-  const handleDownloadFile = async (fileUrl, fileName) => {
+  const handleDownloadFile = async (fileUrl) => {
     try {
+      // Extract original filename from URL
+      const urlParts = fileUrl.split('/');
+      const fileName = urlParts[urlParts.length - 1].split('?')[0] || 'download';
+    
       const response = await fetch(fileUrl);
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = fileName || 'download';
+      link.download = fileName;
       document.body.appendChild(link);
       link.click();
       setTimeout(() => {
@@ -384,7 +388,7 @@ const App = () => {
                 <div style={{ fontSize: '0.9375rem', lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msg.content}</div>
                 {msg.file_path && (
                   <div style={{ marginTop: '0.75rem', padding: '0.75rem', background: msg.sender_id === null ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)', borderRadius: '0.5rem' }}>
-                    <button onClick={() => handleDownloadFile(msg.file_path, msg.content.includes('📎') ? msg.content.replace('📎', '').trim() : 'download')} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: msg.sender_id === null ? '#1a1a1a' : 'white', fontSize: '0.875rem', fontWeight: '600', background: 'none', border: 'none', cursor: 'pointer', width: '100%', textAlign: 'left', padding: 0 }}>
+                    <button onClick={() => handleDownloadFile(msg.file_path)} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: msg.sender_id === null ? '#1a1a1a' : 'white', fontSize: '0.875rem', fontWeight: '600', background: 'none', border: 'none', cursor: 'pointer', width: '100%', textAlign: 'left', padding: 0 }}>
                       <Paperclip style={{ width: '1rem', height: '1rem' }} />
                       <span style={{ textDecoration: 'underline' }}>Download File</span>
                     </button>
@@ -437,9 +441,6 @@ const App = () => {
 
       <div style={{ background: 'white', padding: '1rem 1.5rem', borderTop: '1px solid #e5e7eb', boxShadow: '0 -2px 10px rgba(0,0,0,0.05)' }}>
         <div style={{ maxWidth: '900px', margin: '0 auto' }}>
-          <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '0.75rem', textAlign: 'center' }}>
-            Try: "give a task" • "show tasks" • "send feedback" • "skip"
-          </div>
           <form onSubmit={handleSendMessage} style={{ display: 'flex', gap: '0.75rem' }}>
             <input type="file" ref={fileInputRef} onChange={handleFileSelect} style={{ display: 'none' }} />
             <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading || loading} style={{ background: uploadedFile ? '#e0f2fe' : '#f3f4f6', border: uploadedFile ? '2px solid #0284c7' : '1px solid #d1d5db', padding: '0.75rem', borderRadius: '0.5rem', cursor: uploading || loading ? 'not-allowed' : 'pointer', opacity: uploading || loading ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }} title={uploading ? 'Uploading...' : 'Attach file'}>
