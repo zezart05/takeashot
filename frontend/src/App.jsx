@@ -180,9 +180,18 @@ const App = () => {
         setUploadedFile(data);
         setError('');
         console.log('✅ Upload successful!', data);
-      } else {
-        setError('File upload failed');
-        console.error('❌ Upload failed:', response.status);
+  
+        setMessages(prev => [...prev, {
+          sender_id: currentUser.id,
+          receiver_id: null,
+          content: `📎 ${data.filename}`,
+          file_path: data.file_url,
+          timestamp: new Date().toISOString()
+        }]);
+
+        setTimeout(() => {
+          handleSendMessage({ preventDefault: () => {} }, 'File uploaded successfully');
+        }, 800);
       }
     } catch (error) {
       setError('File upload error');
@@ -427,12 +436,14 @@ const App = () => {
                   {msg.file_path && (
                     <div style={{marginTop:'0.75rem',padding:'0.75rem',background:'rgba(0,0,0,0.1)',borderRadius:'0.5rem',display:'flex',alignItems:'center',gap:'0.5rem'}}>
                       <span style={{fontSize:'1.25rem'}}>📎</span>
-                      <button 
-                        onClick={(e) => handleDownload(msg.file_path, e)}
-                        style={{color:msg.sender_id===null?'#1a1a1a':'white',fontSize:'0.875rem',textDecoration:'underline',fontWeight:'600',flex:1,background:'none',border:'none',cursor:'pointer',textAlign:'left'}}
+                      <a 
+                        href={msg.file_path}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{color:msg.sender_id===null?'#1a1a1a':'white',fontSize:'0.875rem',textDecoration:'underline',fontWeight:'600',flex:1}}
                       >
-                        Download Attachment
-                      </button>
+                        {msg.content.includes('📎') ? msg.content.replace('📎', '').trim() : 'View File'}
+                      </a>
                     </div>
                   )}
                   <div style={{fontSize:'0.75rem',opacity:0.6,marginTop:'0.5rem'}}>{new Date(msg.timestamp).toLocaleTimeString()}</div>
