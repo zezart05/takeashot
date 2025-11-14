@@ -22,7 +22,6 @@ class ChatSession:
         if user_id in self.sessions:
             self.sessions[user_id] = {"intent": None, "step": None, "data": {}}
 
-# Global session manager
 session_manager = ChatSession()
 
 class AIAgent:
@@ -37,24 +36,19 @@ class AIAgent:
         if not user:
             return "User not found.", None, None
         
-        # Route to appropriate handler based on role
         if user.role == "manager":
             return self._process_manager_message(user, message)
         else:
             return self._process_employee_message(user, message)
-    
-    # ==================== MANAGER METHODS ====================
     
     def _process_manager_message(self, user: User, message: str) -> Tuple[str, Optional[str], Optional[Dict]]:
         """Process messages from managers"""
         session = session_manager.get_session(user.id)
         lower_msg = message.lower()
         
-        # If no active intent, detect what the manager wants
         if session.get("intent") is None:
             return self._detect_manager_intent(user, message, lower_msg)
         
-        # Continue existing conversation flow
         intent = session.get("intent")
         
         if intent == "create_task":
@@ -77,7 +71,6 @@ class AIAgent:
     def _detect_manager_intent(self, user: User, message: str, lower_msg: str) -> Tuple[str, Optional[str], Optional[Dict]]:
         """Detect what the manager wants to do"""
         
-        # CREATE TASK
         if any(kw in lower_msg for kw in ["give a task", "assign task", "create task", "new task", "add task"]):
             session_manager.update_session(user.id, {"intent": "create_task", "step": "ask_employee", "data": {}})
             employees = self.db.query(User).filter(User.role == "employee", User.is_active == True).all()
@@ -89,7 +82,6 @@ class AIAgent:
             employee_list = "\n".join([f"• {e.full_name}" for e in employees])
             return f"Who should I assign this task to?\n\nAvailable employees:\n{employee_list}", None, None
         
-        # SHOW TASKS
         elif any(kw in lower_msg for kw in ["show tasks", "view tasks", "list tasks", "all tasks", "my tasks"]):
             session_manager.update_session(user.id, {"intent": "show_tasks", "step": "ask_filter", "data": {}})
             return (
@@ -100,7 +92,6 @@ class AIAgent:
                 "Type 1, 2, or 3:"
             ), None, None
         
-        # MODIFY TASK
         elif any(kw in lower_msg for kw in ["modify task", "edit task", "change task", "update task", "change deadline"]):
             tasks = self.db.query(Task).filter(Task.created_by == user.id, Task.status != "deleted").all()
             
@@ -114,7 +105,6 @@ class AIAgent:
                 response += f"{i}. {task.title}\n"
             return response, None, None
         
-        # DELETE TASK
         elif any(kw in lower_msg for kw in ["delete task", "remove task", "cancel task"]):
             tasks = self.db.query(Task).filter(Task.created_by == user.id, Task.status != "deleted").all()
             
@@ -128,7 +118,6 @@ class AIAgent:
                 response += f"{i}. {task.title}\n"
             return response, None, None
         
-        # CHECK PROGRESS
         elif any(kw in lower_msg for kw in ["check progress", "task progress", "how are tasks", "status update", "progress for"]):
             session_manager.update_session(user.id, {"intent": "check_progress", "step": "ask_scope", "data": {}})
             return (
@@ -138,7 +127,6 @@ class AIAgent:
                 "Type 1 or 2:"
             ), None, None
         
-        # SEND FEEDBACK
         elif any(kw in lower_msg for kw in ["send feedback", "give feedback", "feedback to"]):
             employees = self.db.query(User).filter(User.role == "employee", User.is_active == True).all()
             
@@ -152,7 +140,6 @@ class AIAgent:
                 response += f"• {emp.full_name}\n"
             return response, None, None
         
-        # NOTIFY TEAM
         elif any(kw in lower_msg for kw in ["notify team", "create event", "announce", "broadcast", "send announcement"]):
             session_manager.update_session(user.id, {"intent": "notify_team", "step": "ask_recipients", "data": {}})
             return (
@@ -162,7 +149,6 @@ class AIAgent:
                 "Type 1 or 2:"
             ), None, None
         
-        # HELP / DEFAULT
         else:
             return self._get_manager_help(), None, None
     
@@ -200,12 +186,15 @@ class AIAgent:
                 return "Please upload the file now (click the 📎 button and select your file).", None, None
             else:
                 session_manager.update_session(user.id, {"step": "ask_deadline", "data": data})
-                return "When's the deadline?\n\n(You can say: 'tomorrow', 'in 5 days', 'next Friday', or '2025-11-15')", None, None
+                return "When's the deadline?\n\n(Examples: 'tomorrow', 'next Monday', 'this Friday', 'in 5 days', '2025-11-15')", None, None
         
         elif step == "wait_for_file":
-            if data.get("file_path"):
+            if message.lower() in ["skip", "no", "cancel"]:
                 session_manager.update_session(user.id, {"step": "ask_deadline", "data": data})
-                return f"File received: {data.get('filename')}\n\nWhen's the deadline?\n\n(You can say: 'tomorrow', 'in 5 days', 'next Friday', or '2025-11-15')", None, None
+                return "No file attached.\n\nWhen's the deadline?\n\n(Examples: 'tomorrow', 'next Monday', 'this Friday', 'in 5 days')", None, None
+            elif data.get("file_path"):
+                session_manager.update_session(user.id, {"step": "ask_deadline", "data": data})
+                return f"File received: {data.get('filename')}\n\nWhen's the deadline?\n\n(Examples: 'tomorrow', 'next Monday', 'this Friday', 'in 5 days')", None, None
             else:
                 return "Please upload a file using the 📎 button, or type 'skip' to continue without a file.", None, None
         
@@ -224,16 +213,15 @@ class AIAgent:
                     f"Confirm Task Creation:\n\n"
                     f"📋 Task: {data['title']}\n"
                     f"👤 Assigned to: {data['employee_name']}\n"
-                    f"📅 Deadline: {deadline.strftime('%B %d, %Y')}\n"
+                    f"📅 Deadline: {deadline.strftime('%B %d, %Y (%A)')}\n"
                     f"📝 Description: {data['description']}{file_info}\n\n"
                     f"Type 'yes' to create or 'no' to cancel."
                 ), None, None
             except Exception as e:
-                return f"Invalid date format. Try: 'tomorrow', 'in 5 days', or '2025-11-15'.", None, None
+                return f"Invalid date format. Try: 'tomorrow', 'next Monday', 'this Friday', 'in 5 days', or '2025-11-15'.", None, None
         
         elif step == "confirm":
             if message.lower() in ["yes", "y", "confirm", "ok"]:
-                # Create task
                 task = Task(
                     title=data["title"],
                     description=data["description"],
@@ -247,8 +235,12 @@ class AIAgent:
                 self.db.commit()
                 self.db.refresh(task)
                 
-                # Notify employee
-                file_note = f"\n\n📎 File attached: {data.get('filename')}" if data.get('file_path') else ""
+                # Create notification with ORIGINAL filename preserved
+                if data.get('file_path') and data.get('filename'):
+                    file_note = f"\n\n📎 {data.get('filename')}"
+                else:
+                    file_note = ""
+                
                 notification = Message(
                     sender_id=None,
                     receiver_id=data["employee_id"],
@@ -265,7 +257,7 @@ class AIAgent:
                     f"🎉 Task Created Successfully!\n\n"
                     f"✅ Task: {task.title}\n"
                     f"👤 Assigned to: {data['employee_name']}\n"
-                    f"📅 Due: {task.deadline.strftime('%B %d, %Y')}{file_msg}\n\n"
+                    f"📅 Due: {task.deadline.strftime('%B %d, %Y (%A)')}{file_msg}\n\n"
                     f"I've notified them!",
                     "task_created",
                     {"task_id": task.id}
@@ -292,18 +284,9 @@ class AIAgent:
                 response = f"📋 Your Assigned Tasks ({len(tasks)}):\n\n"
                 for i, task in enumerate(tasks, 1):
                     employee = self.db.query(User).filter(User.id == task.assigned_to).first()
-                    status_emoji = {
-                        "completed": "✅",
-                        "late": "🔴",
-                        "in_progress": "🟡",
-                        "pending": "⏳"
-                    }.get(task.status, "❓")
-                    
+                    status_emoji = {"completed": "✅", "late": "🔴", "in_progress": "🟡", "pending": "⏳"}.get(task.status, "❓")
                     days_until = (task.deadline - datetime.now()).days
                     file_marker = " 📎" if task.file_path else ""
-                    
-                    # Truncate description without ...
-                    desc_preview = task.description[:60] if len(task.description) > 60 else task.description
                     
                     response += f"{i}. {status_emoji} {task.title}{file_marker}\n"
                     response += f"   👤 {employee.full_name}\n"
@@ -322,7 +305,7 @@ class AIAgent:
             
             elif "3" in message:
                 session_manager.update_session(user.id, {"step": "filter_by_date", "data": data})
-                return "Which date? (YYYY-MM-DD)", None, None
+                return "Which date? (Examples: 'next Monday', 'this Friday', '2025-11-15')", None, None
             
             else:
                 return "Please choose 1, 2, or 3.", None, None
@@ -360,17 +343,19 @@ class AIAgent:
                 deadline = parse_deadline(message)
                 tasks = self.db.query(Task).filter(
                     Task.created_by == user.id,
-                    Task.deadline == deadline.date(),
                     Task.status != "deleted"
                 ).all()
                 
+                # Filter tasks by date (compare date only, not time)
+                matching_tasks = [t for t in tasks if t.deadline.date() == deadline.date()]
+                
                 session_manager.clear_session(user.id)
                 
-                if not tasks:
-                    return f"No tasks found for {deadline.strftime('%b %d, %Y')}.", None, None
+                if not matching_tasks:
+                    return f"No tasks found for {deadline.strftime('%B %d, %Y')}.", None, None
                 
-                response = f"📋 Tasks due on {deadline.strftime('%B %d, %Y')} ({len(tasks)}):\n\n"
-                for i, task in enumerate(tasks, 1):
+                response = f"📋 Tasks due on {deadline.strftime('%B %d, %Y')} ({len(matching_tasks)}):\n\n"
+                for i, task in enumerate(matching_tasks, 1):
                     employee = self.db.query(User).filter(User.id == task.assigned_to).first()
                     status_emoji = {"completed": "✅", "late": "🔴", "in_progress": "🟡", "pending": "⏳"}.get(task.status, "❓")
                     file_marker = " 📎" if task.file_path else ""
@@ -380,7 +365,7 @@ class AIAgent:
                 
                 return response, "show_tasks_filtered", None
             except:
-                return "Invalid date. Please use YYYY-MM-DD format.", None, None
+                return "Invalid date. Try: 'next Monday', 'this Friday', or '2025-11-15'.", None, None
         
         return "Something went wrong.", None, None
     
@@ -407,54 +392,67 @@ class AIAgent:
                 })
                 return (
                     f"What would you like to change about '{task.title}'?\n\n"
-                    f"(1) Description\n"
-                    f"(2) Deadline\n"
-                    f"(3) Assigned employee\n"
-                    f"(4) Title\n\n"
-                    f"Type 1, 2, 3, or 4:"
+                    f"(1) Title\n"
+                    f"(2) Description\n"
+                    f"(3) Deadline\n"
+                    f"(4) Assigned employee\n"
+                    f"(5) Attached file\n\n"
+                    f"Type 1, 2, 3, 4, or 5:"
                 ), None, None
             else:
                 return "Task not found. Please try again.", None, None
         
         elif step == "select_field":
-            if "1" in message or "description" in message.lower():
+            if "1" in message or "title" in message.lower():
+                session_manager.update_session(user.id, {"step": "modify_title", "data": data})
+                return "What's the new title?", None, None
+            elif "2" in message or "description" in message.lower():
                 session_manager.update_session(user.id, {"step": "modify_description", "data": data})
                 return "What's the new description?", None, None
-            elif "2" in message or "deadline" in message.lower():
+            elif "3" in message or "deadline" in message.lower():
                 session_manager.update_session(user.id, {"step": "modify_deadline", "data": data})
-                return "What's the new deadline? (e.g., 'in 5 days', '2025-11-15')", None, None
-            elif "3" in message or "employee" in message.lower():
+                return "What's the new deadline?\n\n(Examples: 'next Monday', 'this Friday', 'in 5 days', '2025-11-15')", None, None
+            elif "4" in message or "employee" in message.lower():
                 employees = self.db.query(User).filter(User.role == "employee", User.is_active == True).all()
                 session_manager.update_session(user.id, {"step": "modify_employee", "data": data})
                 response = "Who should the task be assigned to?\n\n"
                 for emp in employees:
                     response += f"• {emp.full_name}\n"
                 return response, None, None
-            elif "4" in message or "title" in message.lower():
-                session_manager.update_session(user.id, {"step": "modify_title", "data": data})
-                return "What's the new title?", None, None
+            elif "5" in message or "file" in message.lower():
+                session_manager.update_session(user.id, {"step": "modify_file", "data": data})
+                return "Please upload the new file now (click the 📎 button).", None, None
             else:
-                return "Please choose 1, 2, 3, or 4.", None, None
+                return "Please choose 1, 2, 3, 4, or 5.", None, None
+        
+        elif step == "modify_title":
+            task = self.db.query(Task).filter(Task.id == data["task_id"]).first()
+            employee = self.db.query(User).filter(User.id == data["employee_id"]).first()
+            old_title = task.title
+            task.title = message
+            self.db.commit()
+            
+            notification = Message(
+                sender_id=None,
+                receiver_id=data["employee_id"],
+                content=f"ℹ️ Task title updated!\n\nOld: {old_title}\nNew: {message}"
+            )
+            self.db.add(notification)
+            self.db.commit()
+            
+            session_manager.clear_session(user.id)
+            return f"✅ Task title updated! {employee.full_name} has been notified.", "task_modified", None
         
         elif step == "modify_description":
             task = self.db.query(Task).filter(Task.id == data["task_id"]).first()
             employee = self.db.query(User).filter(User.id == data["employee_id"]).first()
-            
-            new_desc = message
-            if data.get("file_path"):
-                new_desc += f"\n[Updated file: {data.get('filename')}]"
-                task.file_path = data.get("file_path")
-            
-            task.description = new_desc
+            task.description = message
             self.db.commit()
             
-            # Notify employee about change (from AI assistant)
-            file_note = f"\n📎 New file attached: {data.get('filename')}" if data.get("file_path") else ""
             notification = Message(
-                sender_id=None,  # AI assistant sends it
+                sender_id=None,
                 receiver_id=data["employee_id"],
-                content=f"ℹ️ Task description updated!\n\nTask: {task.title}\n\nNew description: {new_desc}{file_note}",
-                file_path=data.get("file_path")
+                content=f"ℹ️ Task description updated!\n\nTask: {task.title}\n\nNew description: {message}"
             )
             self.db.add(notification)
             self.db.commit()
@@ -474,11 +472,10 @@ class AIAgent:
                 task.deadline = new_deadline
                 self.db.commit()
                 
-                # Notify employee
                 notification = Message(
                     sender_id=None,
                     receiver_id=data["employee_id"],
-                    content=f"⚠️ Task deadline updated!\n\n{task.title}\n\nNew deadline: {new_deadline.strftime('%B %d, %Y')}"
+                    content=f"⚠️ Task deadline updated!\n\n{task.title}\n\nNew deadline: {new_deadline.strftime('%B %d, %Y (%A)')}"
                 )
                 self.db.add(notification)
                 self.db.commit()
@@ -486,12 +483,12 @@ class AIAgent:
                 session_manager.clear_session(user.id)
                 return (
                     f"✅ Task deadline updated!\n\n"
-                    f"Old: {old_deadline.strftime('%B %d, %Y')}\n"
-                    f"New: {new_deadline.strftime('%B %d, %Y')}\n\n"
+                    f"Old: {old_deadline.strftime('%B %d, %Y (%A)')}\n"
+                    f"New: {new_deadline.strftime('%B %d, %Y (%A)')}\n\n"
                     f"{employee.full_name} has been notified."
                 ), "task_modified", None
             except:
-                return "Invalid date format. Try: 'tomorrow', 'in 5 days', or '2025-11-15'.", None, None
+                return "Invalid date format. Try: 'next Monday', 'this Friday', 'in 5 days', or '2025-11-15'.", None, None
         
         elif step == "modify_employee":
             employees = self.db.query(User).filter(User.role == "employee", User.is_active == True).all()
@@ -503,7 +500,6 @@ class AIAgent:
             task = self.db.query(Task).filter(Task.id == data["task_id"]).first()
             old_employee = self.db.query(User).filter(User.id == task.assigned_to).first()
             
-            # Notify old employee
             notification_old = Message(
                 sender_id=None,
                 receiver_id=old_employee.id,
@@ -511,12 +507,18 @@ class AIAgent:
             )
             self.db.add(notification_old)
             
-            # Update task
             task.assigned_to = new_employee.id
             self.db.commit()
             
-            # Notify new employee
-            file_note = f"\n📎 File attached: {task.file_path.split('/')[-1]}" if task.file_path else ""
+            # Include original filename in notification
+            if task.file_path:
+                # Extract filename from URL or use generic
+                url_parts = task.file_path.split('/')
+                filename = url_parts[-1].split('?')[0] if url_parts else 'attached_file'
+                file_note = f"\n\n📎 {filename}"
+            else:
+                file_note = ""
+            
             notification_new = Message(
                 sender_id=None,
                 receiver_id=new_employee.id,
@@ -534,24 +536,31 @@ class AIAgent:
                 f"Both employees have been notified."
             ), "task_modified", None
         
-        elif step == "modify_title":
-            task = self.db.query(Task).filter(Task.id == data["task_id"]).first()
-            employee = self.db.query(User).filter(User.id == data["employee_id"]).first()
-            old_title = task.title
-            task.title = message
-            self.db.commit()
-            
-            # Notify employee
-            notification = Message(
-                sender_id=None,
-                receiver_id=data["employee_id"],
-                content=f"ℹ️ Task title updated!\n\nOld: {old_title}\nNew: {message}"
-            )
-            self.db.add(notification)
-            self.db.commit()
-            
-            session_manager.clear_session(user.id)
-            return f"✅ Task title updated! {employee.full_name} has been notified.", "task_modified", None
+        elif step == "modify_file":
+            if message.lower() in ["skip", "no", "cancel"]:
+                session_manager.clear_session(user.id)
+                return "File modification cancelled.", None, None
+            elif data.get("file_path"):
+                task = self.db.query(Task).filter(Task.id == data["task_id"]).first()
+                employee = self.db.query(User).filter(User.id == data["employee_id"]).first()
+                
+                task.file_path = data.get("file_path")
+                self.db.commit()
+                
+                # Include ORIGINAL filename in message
+                notification = Message(
+                    sender_id=None,
+                    receiver_id=data["employee_id"],
+                    content=f"📎 Task file updated!\n\nTask: {task.title}\n\n📎 {data.get('filename')}",
+                    file_path=data.get("file_path")
+                )
+                self.db.add(notification)
+                self.db.commit()
+                
+                session_manager.clear_session(user.id)
+                return f"✅ Task file updated to '{data.get('filename')}'! {employee.full_name} has been notified.", "task_modified", None
+            else:
+                return "Please upload a file using the 📎 button, or type 'skip' to cancel.", None, None
         
         return "Something went wrong.", None, None
     
@@ -584,7 +593,6 @@ class AIAgent:
                 task.status = "deleted"
                 self.db.commit()
                 
-                # Notify employee
                 notification = Message(
                     sender_id=None,
                     receiver_id=data["employee_id"],
@@ -733,7 +741,6 @@ class AIAgent:
                 session_manager.update_session(user.id, {"step": "wait_for_file", "data": data})
                 return "Please upload the file now (click the 📎 button).", None, None
             else:
-                # Send without file
                 feedback_text = data.get("feedback_text")
                 feedback = Feedback(
                     from_user_id=user.id,
@@ -757,15 +764,36 @@ class AIAgent:
                 return f"✅ Feedback sent to {data['employee_name']}!", "feedback_sent", None
         
         elif step == "wait_for_file":
-            if data.get("file_path"):
+            if message.lower() in ["skip", "no", "cancel"]:
                 feedback_text = data.get("feedback_text")
-                file_note = f"\n📎 File attached: {data.get('filename')}"
+                feedback = Feedback(
+                    from_user_id=user.id,
+                    to_user_id=data["employee_id"],
+                    task_id=data.get("task_id"),
+                    content=feedback_text,
+                    timestamp=datetime.utcnow()
+                )
+                self.db.add(feedback)
+                
+                task_context = f" about '{data.get('task_title')}'" if data.get("task_id") else ""
+                notification = Message(
+                    sender_id=None,
+                    receiver_id=data["employee_id"],
+                    content=f"💬 New Feedback from {user.full_name}{task_context}:\n\n{feedback_text}"
+                )
+                self.db.add(notification)
+                self.db.commit()
+                
+                session_manager.clear_session(user.id)
+                return f"✅ Feedback sent to {data['employee_name']}!", "feedback_sent", None
+            elif data.get("file_path"):
+                feedback_text = data.get("feedback_text")
                 
                 feedback = Feedback(
                     from_user_id=user.id,
                     to_user_id=data["employee_id"],
                     task_id=data.get("task_id"),
-                    content=feedback_text + file_note,
+                    content=feedback_text,
                     timestamp=datetime.utcnow(),
                     file_path=data.get("file_path")
                 )
@@ -775,7 +803,7 @@ class AIAgent:
                 notification = Message(
                     sender_id=None,
                     receiver_id=data["employee_id"],
-                    content=f"💬 New Feedback from {user.full_name}{task_context}:\n\n{feedback_text}{file_note}",
+                    content=f"💬 New Feedback from {user.full_name}{task_context}:\n\n{feedback_text}\n\n📎 {data.get('filename')}",
                     file_path=data.get("file_path")
                 )
                 self.db.add(notification)
@@ -789,7 +817,7 @@ class AIAgent:
         return "Something went wrong.", None, None
     
     def _handle_notify_team(self, user: User, message: str, session: Dict) -> Tuple[str, Optional[str], Optional[Dict]]:
-        """Handle team notifications / announcements"""
+        """Handle team notifications"""
         step = session.get("step")
         data = session.get("data", {})
         
@@ -826,7 +854,6 @@ class AIAgent:
                 session_manager.update_session(user.id, {"step": "wait_for_file", "data": data})
                 return "Please upload the file now (click the 📎 button).", None, None
             else:
-                # Send without file
                 message_text = data.get("message_text")
                 
                 if data["recipient_type"] == "all":
@@ -857,9 +884,8 @@ class AIAgent:
                     return f"✅ Message sent to {data['employee_name']}!", "message_sent", None
         
         elif step == "wait_for_file":
-            if data.get("file_path"):
+            if message.lower() in ["skip", "no", "cancel"]:
                 message_text = data.get("message_text")
-                file_note = f"\n📎 File attached: {data.get('filename')}"
                 
                 if data["recipient_type"] == "all":
                     employees = self.db.query(User).filter(User.role == "employee", User.is_active == True).all()
@@ -868,7 +894,35 @@ class AIAgent:
                         notification = Message(
                             sender_id=None,
                             receiver_id=emp.id,
-                            content=f"📢 Announcement from {user.full_name}:\n\n{message_text}{file_note}",
+                            content=f"📢 Announcement from {user.full_name}:\n\n{message_text}"
+                        )
+                        self.db.add(notification)
+                    
+                    self.db.commit()
+                    session_manager.clear_session(user.id)
+                    return f"✅ Announcement sent to {len(employees)} employee(s)!", "announcement_sent", {"count": len(employees)}
+                else:
+                    notification = Message(
+                        sender_id=None,
+                        receiver_id=data["employee_id"],
+                        content=f"💬 Message from {user.full_name}:\n\n{message_text}"
+                    )
+                    self.db.add(notification)
+                    self.db.commit()
+                    
+                    session_manager.clear_session(user.id)
+                    return f"✅ Message sent to {data['employee_name']}!", "message_sent", None
+            elif data.get("file_path"):
+                message_text = data.get("message_text")
+                
+                if data["recipient_type"] == "all":
+                    employees = self.db.query(User).filter(User.role == "employee", User.is_active == True).all()
+                    
+                    for emp in employees:
+                        notification = Message(
+                            sender_id=None,
+                            receiver_id=emp.id,
+                            content=f"📢 Announcement from {user.full_name}:\n\n{message_text}\n\n📎 {data.get('filename')}",
                             file_path=data.get("file_path")
                         )
                         self.db.add(notification)
@@ -881,7 +935,7 @@ class AIAgent:
                     notification = Message(
                         sender_id=None,
                         receiver_id=data["employee_id"],
-                        content=f"💬 Message from {user.full_name}:\n\n{message_text}{file_note}",
+                        content=f"💬 Message from {user.full_name}:\n\n{message_text}\n\n📎 {data.get('filename')}",
                         file_path=data.get("file_path")
                     )
                     self.db.add(notification)
@@ -893,8 +947,6 @@ class AIAgent:
                 return "Please upload a file using the 📎 button, or type 'skip' to send without a file.", None, None
         
         return "Something went wrong.", None, None
-    
-    # ==================== EMPLOYEE METHODS ====================
     
     def _process_employee_message(self, user: User, message: str) -> Tuple[str, Optional[str], Optional[Dict]]:
         """Process messages from employees"""
@@ -918,7 +970,6 @@ class AIAgent:
     def _detect_employee_intent(self, user: User, message: str, lower_msg: str) -> Tuple[str, Optional[str], Optional[Dict]]:
         """Detect what the employee wants"""
         
-        # MY TASKS
         if any(kw in lower_msg for kw in ["my tasks", "show tasks", "what tasks", "list tasks", "tasks"]):
             tasks = self.db.query(Task).filter(
                 Task.assigned_to == user.id,
@@ -931,29 +982,18 @@ class AIAgent:
             response = f"📋 Your Tasks ({len(tasks)}):\n\n"
             for i, task in enumerate(tasks, 1):
                 manager = self.db.query(User).filter(User.id == task.created_by).first()
-                status_emoji = {
-                    "completed": "✅",
-                    "late": "🔴",
-                    "in_progress": "🟡",
-                    "pending": "⏳"
-                }.get(task.status, "❓")
-                
+                status_emoji = {"completed": "✅", "late": "🔴", "in_progress": "🟡", "pending": "⏳"}.get(task.status, "❓")
                 days_until = (task.deadline - datetime.now()).days
                 due_text = f"{days_until} days" if days_until > 0 else "Today!" if days_until == 0 else f"Overdue by {abs(days_until)} days"
-                
                 file_info = " 📎" if task.file_path else ""
                 
-                # Truncate description without ...
-                desc_preview = task.description[:60] if len(task.description) > 60 else task.description
-                
                 response += f"{i}. {status_emoji} {task.title}{file_info}\n"
-                response += f"   📝 {desc_preview}\n"
+                response += f"   📝 {task.description[:60]}\n"
                 response += f"   📅 Due: {task.deadline.strftime('%b %d')} ({due_text})\n"
                 response += f"   👤 From: {manager.full_name}\n\n"
             
             return response, "my_tasks", {"tasks": [t.id for t in tasks]}
         
-        # COMPLETE TASK
         elif any(kw in lower_msg for kw in ["complete", "finished", "done", "submit"]):
             active_tasks = self.db.query(Task).filter(
                 Task.assigned_to == user.id,
@@ -971,9 +1011,6 @@ class AIAgent:
                     "data": {
                         "task_id": task.id,
                         "task_title": task.title,
-                        "task_description": task.description,
-                        "task_deadline": task.deadline.strftime('%B %d, %Y'),
-                        "task_file_path": task.file_path,
                         "manager_id": task.created_by
                     }
                 })
@@ -994,7 +1031,6 @@ class AIAgent:
                     response += f"{i}. {task.title}\n"
                 return response, None, None
         
-        # CHECK DEADLINE
         elif any(kw in lower_msg for kw in ["deadline", "when is", "due date", "next deadline"]):
             tasks = self.db.query(Task).filter(
                 Task.assigned_to == user.id,
@@ -1010,12 +1046,11 @@ class AIAgent:
             return (
                 f"⏰ Your Next Deadline:\n\n"
                 f"📋 Task: {next_task.title}\n"
-                f"📅 Due: {next_task.deadline.strftime('%B %d, %Y')}\n"
+                f"📅 Due: {next_task.deadline.strftime('%B %d, %Y (%A)')}\n"
                 f"⏱️ Time left: {days_until} days\n\n"
                 f"{'🔴 This is urgent!' if days_until <= 2 else '🟡 Coming up soon!' if days_until <= 5 else '✅ You have time!'}"
-            ), "next_deadline", {"task_id": next_task.id, "days_until": days_until}
+            ), "next_deadline", {"task_id": next_task.id}
         
-        # VIEW FEEDBACK
         elif any(kw in lower_msg for kw in ["feedback", "my feedback", "show feedback"]):
             feedback_list = self.db.query(Feedback).filter(
                 Feedback.to_user_id == user.id
@@ -1034,7 +1069,6 @@ class AIAgent:
             
             return response, "view_feedback", None
         
-        # ASK QUESTION
         elif any(kw in lower_msg for kw in ["question", "ask", "i have a question", "can i ask"]):
             session_manager.update_session(user.id, {"intent": "ask_question", "step": "select_manager", "data": {}})
             managers = self.db.query(User).filter(User.role == "manager", User.is_active == True).all()
@@ -1048,24 +1082,14 @@ class AIAgent:
                 response += f"• {mgr.full_name}\n"
             return response, None, None
         
-        # HELP
         elif any(kw in lower_msg for kw in ["help", "how do i"]):
-            return (
-                "I'm here to help! You can:\n\n"
-                "📋 Type 'my tasks' to see your assignments\n"
-                "✅ Type 'complete task' when you finish something\n"
-                "⏰ Type 'next deadline' to see what's coming up\n"
-                "💬 Type 'my feedback' to view manager feedback\n"
-                "❓ Type 'question' to ask your manager something\n\n"
-                "What would you like to do?"
-            ), None, None
+            return self._get_employee_help(), None, None
         
-        # DEFAULT
         else:
             return self._get_employee_help(), None, None
     
     def _handle_complete_task(self, user: User, message: str, session: Dict) -> Tuple[str, Optional[str], Optional[Dict]]:
-        """Handle task completion - NEW FLOW"""
+        """Handle task completion"""
         step = session.get("step")
         data = session.get("data", {})
         
@@ -1089,9 +1113,6 @@ class AIAgent:
                     "data": {
                         "task_id": task.id,
                         "task_title": task.title,
-                        "task_description": task.description,
-                        "task_deadline": task.deadline.strftime('%B %d, %Y'),
-                        "task_file_path": task.file_path,
                         "manager_id": task.created_by
                     }
                 })
@@ -1130,7 +1151,10 @@ class AIAgent:
                 return f"Ready to submit '{data['task_title']}'?\n\nType 'yes' to confirm.", None, None
         
         elif step == "wait_for_file":
-            if data.get("file_path"):
+            if message.lower() in ["skip", "no", "cancel"]:
+                session_manager.update_session(user.id, {"step": "final_confirm", "data": data})
+                return f"Ready to submit '{data['task_title']}'?\n\nType 'yes' to confirm.", None, None
+            elif data.get("file_path"):
                 session_manager.update_session(user.id, {"step": "final_confirm", "data": data})
                 return f"File received: {data.get('filename')}\n\nReady to submit '{data['task_title']}'?\n\nType 'yes' to confirm.", None, None
             else:
@@ -1138,22 +1162,23 @@ class AIAgent:
         
         elif step == "final_confirm":
             if message.lower() in ["yes", "y", "confirm", "ok"]:
-                # Mark task as completed
                 task = self.db.query(Task).filter(Task.id == data["task_id"]).first()
                 task.status = "completed"
                 task.completed_at = datetime.utcnow()
                 self.db.commit()
                 
-                # Prepare completion notification
                 completion_note = data.get("completion_note", "")
-                file_note = f"\n\n📎 Completion file attached: {data.get('filename')}" if data.get("file_path") else ""
                 
-                # Get manager info
+                # Include ORIGINAL filename in notification
+                if data.get("file_path") and data.get("filename"):
+                    file_note = f"\n\n📎 {data.get('filename')}"
+                else:
+                    file_note = ""
+                
                 manager = self.db.query(User).filter(User.id == data["manager_id"]).first()
                 
-                # Send notification to manager (from AI assistant)
                 notification = Message(
-                    sender_id=None,  # AI assistant sends it
+                    sender_id=None,
                     receiver_id=data["manager_id"],
                     content=(
                         f"✅ Task Completed!\n\n"
@@ -1183,7 +1208,7 @@ class AIAgent:
         return "Something went wrong.", None, None
     
     def _handle_view_feedback(self, user: User, message: str, session: Dict) -> Tuple[str, Optional[str], Optional[Dict]]:
-        """View feedback - already handled in detect_intent"""
+        """View feedback"""
         session_manager.clear_session(user.id)
         return "Use 'my feedback' to see your feedback again.", None, None
     
@@ -1249,7 +1274,6 @@ class AIAgent:
                 session_manager.update_session(user.id, {"step": "wait_for_file", "data": data})
                 return "Please upload the file now (click the 📎 button).", None, None
             else:
-                # Send without file
                 question_text = data.get("question_text")
                 task_context = f" about '{data.get('task_title')}'" if data.get("task_id") else ""
                 
@@ -1265,28 +1289,39 @@ class AIAgent:
                 return f"✅ Question sent to {data['manager_name']}!\n\nThey'll respond as soon as possible.", "question_sent", None
         
         elif step == "wait_for_file":
-            if data.get("file_path"):
+            if message.lower() in ["skip", "no", "cancel"]:
                 question_text = data.get("question_text")
-                file_note = f"\n📎 File attached: {data.get('filename')}"
                 task_context = f" about '{data.get('task_title')}'" if data.get("task_id") else ""
                 
                 notification = Message(
                     sender_id=None,
                     receiver_id=data["manager_id"],
-                    content=f"❓ Question from {user.full_name}{task_context}:\n\n{question_text}{file_note}",
+                    content=f"❓ Question from {user.full_name}{task_context}:\n\n{question_text}"
+                )
+                self.db.add(notification)
+                self.db.commit()
+                
+                session_manager.clear_session(user.id)
+                return f"✅ Question sent to {data['manager_name']}!", "question_sent", None
+            elif data.get("file_path"):
+                question_text = data.get("question_text")
+                task_context = f" about '{data.get('task_title')}'" if data.get("task_id") else ""
+                
+                notification = Message(
+                    sender_id=None,
+                    receiver_id=data["manager_id"],
+                    content=f"❓ Question from {user.full_name}{task_context}:\n\n{question_text}\n\n📎 {data.get('filename')}",
                     file_path=data.get("file_path")
                 )
                 self.db.add(notification)
                 self.db.commit()
                 
                 session_manager.clear_session(user.id)
-                return f"✅ Question with file sent to {data['manager_name']}!\n\nThey'll respond as soon as possible.", "question_sent", None
+                return f"✅ Question with file sent to {data['manager_name']}!", "question_sent", None
             else:
                 return "Please upload a file using the 📎 button, or type 'skip' to send without a file.", None, None
         
         return "Something went wrong.", None, None
-    
-    # ==================== HELP MESSAGES ====================
     
     def _get_manager_help(self) -> str:
         return (
