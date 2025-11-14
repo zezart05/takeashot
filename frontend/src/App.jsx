@@ -125,7 +125,6 @@ const App = () => {
     setCurrentUser(null);
     setMessages([]);
     setUploadedFile(null);
-    setFileComment('');
     localStorage.removeItem('token');
     setCurrentView('login');
   };
@@ -134,10 +133,6 @@ const App = () => {
     if (e) e.preventDefault();
     let messageText = inputMessage.trim();
     let fileData = uploadedFile;
-    
-    if (fileData && fileComment.trim()) {
-      messageText = fileComment.trim();
-    }
     
     if (!messageText && !fileData) return;
     if (loading) return;
@@ -157,7 +152,6 @@ const App = () => {
     
     const sentMessage = messageText || `uploaded file: ${fileData?.filename || 'file'}`;
     setInputMessage('');
-    setFileComment('');
     setUploadedFile(null);
     
     try {
