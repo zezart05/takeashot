@@ -15,7 +15,6 @@ const App = () => {
   const [error, setError] = useState('');
   const [uploadedFile, setUploadedFile] = useState(null);
   const [uploading, setUploading] = useState(false);
-  const [fileComment, setFileComment] = useState('');
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -199,33 +198,63 @@ const App = () => {
   const handleFileSelect = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    
+  
     if (file.size > 10 * 1024 * 1024) {
       setError('File too large (max 10MB)');
-      if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
-    
+  
     setUploading(true);
     setError('');
-    
+  
     const formData = new FormData();
     formData.append('file', file);
     formData.append('user_id', currentUser.id.toString());
-    
+  
     try {
       const response = await fetch(`${API_BASE}/upload/file`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
         body: formData
       });
-      
+    
       if (response.ok) {
         const data = await response.json();
-        setUploadedFile({ filename: data.filename, file_url: data.file_url });
-        setError('');
+      
+      // Immediately add to messages and send
+        const userMsg = {
+          sender_id: currentUser.id,
+          content: `📎 ${data.filename}`,
+          file_path: data.file_url,
+          timestamp: new Date().toISOString()
+        };
+        setMessages(prev => [...prev, userMsg]);
+      
+      // Auto-send to AI
+        const aiResponse = await fetch(`${API_BASE}/chat/message`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            user_id: currentUser.id,
+            message: `uploaded file: ${data.filename}`,
+            file_path: data.file_url,
+            filename: data.filename
+          })
+        });
+      
+        if (aiResponse.ok) {
+          const aiData = await aiResponse.json();
+          setMessages(prev => [...prev, {
+            sender_id: null,
+            content: aiData.response,
+            timestamp: new Date().toISOString()
+          }]);
+        }
       } else {
-        setError('File upload failed');
+        setError('Upload failed');
       }
     } catch (error) {
       setError('Upload error');
@@ -260,7 +289,6 @@ const App = () => {
 
   const cancelFileUpload = () => {
     setUploadedFile(null);
-    setFileComment('');
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -426,12 +454,9 @@ const App = () => {
 
       {uploadedFile && (
         <div style={{ maxWidth: '900px', margin: '0 auto', padding: '0 1.5rem 0.5rem', width: '100%', boxSizing: 'border-box' }}>
-          <div style={{ background: '#e0f2fe', border: '1px solid #7dd3fc', padding: '1rem', borderRadius: '0.5rem', display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
-            <Paperclip style={{ width: '1.5rem', height: '1.5rem', color: '#0284c7', flexShrink: 0, marginTop: '0.25rem' }} />
-            <div style={{ flex: 1 }}>
-              <p style={{ fontSize: '0.875rem', fontWeight: '600', color: '#0c4a6e', margin: '0 0 0.5rem 0' }}>{uploadedFile.filename}</p>
-              <input type="text" value={fileComment} onChange={(e) => setFileComment(e.target.value)} placeholder="Add a comment (optional)..." style={{ width: '100%', padding: '0.5rem', border: '1px solid #7dd3fc', borderRadius: '0.375rem', fontSize: '0.875rem', boxSizing: 'border-box' }} />
-            </div>
+          <div style={{ background: '#e0f2fe', border: '1px solid #7dd3fc', padding: '1rem', borderRadius: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <Paperclip style={{ width: '1.5rem', height: '1.5rem', color: '#0284c7', flexShrink: 0 }} />
+            <p style={{ fontSize: '0.875rem', fontWeight: '600', color: '#0c4a6e', margin: 0, flex: 1 }}>{uploadedFile.filename}</p>
             <button onClick={cancelFileUpload} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem', color: '#0c4a6e', flexShrink: 0 }}>
               <X style={{ width: '1.25rem', height: '1.25rem' }} />
             </button>
