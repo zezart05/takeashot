@@ -13,7 +13,6 @@ const App = () => {
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
   const [signupForm, setSignupForm] = useState({ full_name: '', email: '', password: '', role: 'employee' });
   const [error, setError] = useState('');
-  const [uploadedFile, setUploadedFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -124,35 +123,29 @@ const App = () => {
     setToken(null);
     setCurrentUser(null);
     setMessages([]);
-    setUploadedFile(null);
     localStorage.removeItem('token');
     setCurrentView('login');
   };
 
   const handleSendMessage = async (e) => {
     if (e) e.preventDefault();
-    let messageText = inputMessage.trim();
-    let fileData = uploadedFile;
+    const messageText = inputMessage.trim();
     
-    if (!messageText && !fileData) return;
+    if (!messageText) return;
     if (loading) return;
     
     setLoading(true);
     setError('');
     
-    const displayContent = fileData ? (messageText || `📎 ${fileData.filename}`) : messageText;
     const userMsg = {
       sender_id: currentUser.id,
       receiver_id: null,
-      content: displayContent,
-      file_path: fileData ? fileData.file_url : null,
+      content: messageText,
+      file_path: null,
       timestamp: new Date().toISOString()
     };
     setMessages(prev => [...prev, userMsg]);
-    
-    const sentMessage = messageText || `uploaded file: ${fileData?.filename || 'file'}`;
     setInputMessage('');
-    setUploadedFile(null);
     
     try {
       const response = await fetch(`${API_BASE}/chat/message`, {
@@ -163,9 +156,9 @@ const App = () => {
         },
         body: JSON.stringify({
           user_id: currentUser.id,
-          message: sentMessage,
-          file_path: fileData ? fileData.file_url : null,
-          filename: fileData ? fileData.filename : null
+          message: messageText,
+          file_path: null,
+          filename: null
         })
       });
       
@@ -192,39 +185,43 @@ const App = () => {
   const handleFileSelect = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-  
+    
     if (file.size > 10 * 1024 * 1024) {
       setError('File too large (max 10MB)');
+      if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
-  
+    
     setUploading(true);
+    setLoading(true);
     setError('');
-  
+    
+    const originalFileName = file.name;
+    
     const formData = new FormData();
     formData.append('file', file);
     formData.append('user_id', currentUser.id.toString());
-  
+    
     try {
       const response = await fetch(`${API_BASE}/upload/file`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
         body: formData
       });
-    
+      
       if (response.ok) {
         const data = await response.json();
-      
-      // Immediately add to messages and send
+        
+        // Add file message to chat
         const userMsg = {
           sender_id: currentUser.id,
-          content: `📎 ${data.filename}`,
+          content: `📎 ${originalFileName}`,
           file_path: data.file_url,
           timestamp: new Date().toISOString()
         };
         setMessages(prev => [...prev, userMsg]);
-      
-      // Auto-send to AI
+        
+        // Send to AI
         const aiResponse = await fetch(`${API_BASE}/chat/message`, {
           method: 'POST',
           headers: {
@@ -233,12 +230,12 @@ const App = () => {
           },
           body: JSON.stringify({
             user_id: currentUser.id,
-            message: `uploaded file: ${data.filename}`,
+            message: `uploaded file: ${originalFileName}`,
             file_path: data.file_url,
-            filename: data.filename
+            filename: originalFileName
           })
         });
-      
+        
         if (aiResponse.ok) {
           const aiData = await aiResponse.json();
           setMessages(prev => [...prev, {
@@ -254,16 +251,19 @@ const App = () => {
       setError('Upload error');
     } finally {
       setUploading(false);
+      setLoading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
-  const handleDownloadFile = async (fileUrl) => {
+  const handleDownloadFile = async (fileUrl, messageContent) => {
     try {
-      // Extract original filename from URL
-      const urlParts = fileUrl.split('/');
-      const fileName = urlParts[urlParts.length - 1].split('?')[0] || 'download';
-    
+      // Extract original filename from message "📎 filename.pdf"
+      let fileName = 'download';
+      if (messageContent && messageContent.includes('📎')) {
+        fileName = messageContent.replace('📎', '').trim();
+      }
+      
       const response = await fetch(fileUrl);
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
@@ -281,11 +281,7 @@ const App = () => {
     }
   };
 
-  const cancelFileUpload = () => {
-    setUploadedFile(null);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
+  // LOGIN VIEW
   if (currentView === 'login') {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #0f0f0f 0%, #1a1a1a 50%, #0a0a0a 100%)' }}>
@@ -326,6 +322,7 @@ const App = () => {
     );
   }
 
+  // SIGNUP VIEW
   if (currentView === 'signup') {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #0f0f0f 0%, #1a1a1a 50%, #0a0a0a 100%)' }}>
@@ -370,8 +367,10 @@ const App = () => {
     );
   }
 
+  // CHAT VIEW
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: 'linear-gradient(to bottom, #f9fafb, #f3f4f6)' }}>
+      {/* Header */}
       <div style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #333 100%)', color: 'white', padding: '1rem 1.5rem', boxShadow: '0 4px 6px rgba(0,0,0,0.3)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           <MessageCircle style={{ width: '1.5rem', height: '1.5rem' }} />
@@ -392,13 +391,14 @@ const App = () => {
         </div>
       </div>
 
+      {/* Messages */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '1.5rem' }}>
         <div style={{ maxWidth: '900px', margin: '0 auto' }}>
           {messages.length === 0 && !loading && (
             <div style={{ textAlign: 'center', padding: '3rem', color: '#6b7280' }}>
               <MessageCircle style={{ width: '3rem', height: '3rem', margin: '0 auto 1rem', opacity: 0.5 }} />
               <h3 style={{ fontSize: '1.25rem', marginBottom: '0.5rem', color: '#374151' }}>Welcome!</h3>
-              <p>Type "give a task" or "show tasks" to get started</p>
+              <p>Start a conversation with the AI assistant</p>
             </div>
           )}
           {messages.map((msg, idx) => (
@@ -410,9 +410,11 @@ const App = () => {
                 <div style={{ fontSize: '0.9375rem', lineHeight: 1.6, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msg.content}</div>
                 {msg.file_path && (
                   <div style={{ marginTop: '0.75rem', padding: '0.75rem', background: msg.sender_id === null ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.1)', borderRadius: '0.5rem' }}>
-                    <button onClick={() => handleDownloadFile(msg.file_path)} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: msg.sender_id === null ? '#1a1a1a' : 'white', fontSize: '0.875rem', fontWeight: '600', background: 'none', border: 'none', cursor: 'pointer', width: '100%', textAlign: 'left', padding: 0 }}>
+                    <button onClick={() => handleDownloadFile(msg.file_path, msg.content)} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: msg.sender_id === null ? '#1a1a1a' : 'white', fontSize: '0.875rem', fontWeight: '600', background: 'none', border: 'none', cursor: 'pointer', width: '100%', textAlign: 'left', padding: 0 }}>
                       <Paperclip style={{ width: '1rem', height: '1rem' }} />
-                      <span style={{ textDecoration: 'underline' }}>Download File</span>
+                      <span style={{ textDecoration: 'underline' }}>
+                        {msg.content && msg.content.includes('📎') ? msg.content.replace('📎', '').trim() : 'Download File'}
+                      </span>
                     </button>
                   </div>
                 )}
@@ -435,6 +437,7 @@ const App = () => {
         </div>
       </div>
 
+      {/* Error */}
       {error && (
         <div style={{ maxWidth: '900px', margin: '0 auto', padding: '0 1.5rem 0.5rem', width: '100%', boxSizing: 'border-box' }}>
           <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626', padding: '0.75rem', borderRadius: '0.5rem', fontSize: '0.875rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -446,27 +449,16 @@ const App = () => {
         </div>
       )}
 
-      {uploadedFile && (
-        <div style={{ maxWidth: '900px', margin: '0 auto', padding: '0 1.5rem 0.5rem', width: '100%', boxSizing: 'border-box' }}>
-          <div style={{ background: '#e0f2fe', border: '1px solid #7dd3fc', padding: '1rem', borderRadius: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <Paperclip style={{ width: '1.5rem', height: '1.5rem', color: '#0284c7', flexShrink: 0 }} />
-            <p style={{ fontSize: '0.875rem', fontWeight: '600', color: '#0c4a6e', margin: 0, flex: 1 }}>{uploadedFile.filename}</p>
-            <button onClick={cancelFileUpload} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem', color: '#0c4a6e', flexShrink: 0 }}>
-              <X style={{ width: '1.25rem', height: '1.25rem' }} />
-            </button>
-          </div>
-        </div>
-      )}
-
+      {/* Input */}
       <div style={{ background: 'white', padding: '1rem 1.5rem', borderTop: '1px solid #e5e7eb', boxShadow: '0 -2px 10px rgba(0,0,0,0.05)' }}>
         <div style={{ maxWidth: '900px', margin: '0 auto' }}>
           <form onSubmit={handleSendMessage} style={{ display: 'flex', gap: '0.75rem' }}>
             <input type="file" ref={fileInputRef} onChange={handleFileSelect} style={{ display: 'none' }} />
-            <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading || loading} style={{ background: uploadedFile ? '#e0f2fe' : '#f3f4f6', border: uploadedFile ? '2px solid #0284c7' : '1px solid #d1d5db', padding: '0.75rem', borderRadius: '0.5rem', cursor: uploading || loading ? 'not-allowed' : 'pointer', opacity: uploading || loading ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }} title={uploading ? 'Uploading...' : 'Attach file'}>
-              <Paperclip style={{ width: '1.25rem', height: '1.25rem', color: uploadedFile ? '#0284c7' : '#6b7280' }} />
+            <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading || loading} style={{ background: '#f3f4f6', border: '1px solid #d1d5db', padding: '0.75rem', borderRadius: '0.5rem', cursor: uploading || loading ? 'not-allowed' : 'pointer', opacity: uploading || loading ? 0.5 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }} title={uploading ? 'Uploading...' : 'Attach file'}>
+              <Paperclip style={{ width: '1.25rem', height: '1.25rem', color: '#6b7280' }} />
             </button>
-            <input type="text" value={inputMessage} onChange={(e) => setInputMessage(e.target.value)} placeholder={uploading ? 'Uploading...' : uploadedFile ? 'Add message or press Send...' : 'Type your message...'} disabled={loading || uploading} style={{ flex: 1, padding: '0.75rem 1rem', border: '1px solid #d1d5db', borderRadius: '0.5rem', fontSize: '1rem', outline: 'none', boxSizing: 'border-box' }} />
-            <button type="submit" disabled={loading || uploading || (!inputMessage.trim() && !uploadedFile)} style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #333 100%)', color: 'white', padding: '0.75rem 1.5rem', borderRadius: '0.5rem', border: 'none', cursor: loading || uploading || (!inputMessage.trim() && !uploadedFile) ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: '600', opacity: loading || uploading || (!inputMessage.trim() && !uploadedFile) ? 0.5 : 1, flexShrink: 0 }}>
+            <input type="text" value={inputMessage} onChange={(e) => setInputMessage(e.target.value)} placeholder={uploading ? 'Uploading file...' : 'Type your message...'} disabled={loading || uploading} style={{ flex: 1, padding: '0.75rem 1rem', border: '1px solid #d1d5db', borderRadius: '0.5rem', fontSize: '1rem', outline: 'none', boxSizing: 'border-box' }} />
+            <button type="submit" disabled={loading || uploading || !inputMessage.trim()} style={{ background: 'linear-gradient(135deg, #1a1a1a 0%, #333 100%)', color: 'white', padding: '0.75rem 1.5rem', borderRadius: '0.5rem', border: 'none', cursor: loading || uploading || !inputMessage.trim() ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: '600', opacity: loading || uploading || !inputMessage.trim() ? 0.5 : 1, flexShrink: 0 }}>
               <Send style={{ width: '1.25rem', height: '1.25rem' }} />
               Send
             </button>
